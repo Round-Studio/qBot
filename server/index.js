@@ -211,8 +211,23 @@ function serveStatic(res, pathname) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return fs.createReadStream(index).pipe(res);
   }
-  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('管理面板尚未构建，请先运行 npm run build，或使用 npm run dev 启动开发服务器。');
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(`<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>qBot 管理面板未构建</title>
+<style>
+body{font-family:system-ui,'Microsoft YaHei',sans-serif;background:#fff;color:#18181b;display:flex;align-items:center;justify-content:center;min-height:90vh;margin:0}
+.card{max-width:520px;padding:32px;border:1px solid #e4e4e7;border-radius:12px}
+h1{font-size:18px}code{background:#f4f4f5;border:1px solid #e4e4e7;border-radius:4px;padding:2px 8px;font-family:Consolas,monospace}
+p{color:#52525b;font-size:14px;line-height:1.8}
+</style></head>
+<body><div class="card">
+<h1>管理面板尚未构建</h1>
+<p>请先在项目目录下运行：</p>
+<p><code>npm run build</code></p>
+<p>构建完成后重启服务：<code>npm start</code>（会自动构建）</p>
+<p>或开发模式：<code>npm run dev</code> 打开 http://localhost:5173</p>
+</div></body></html>`);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -238,6 +253,15 @@ const server = http.createServer(async (req, res) => {
 });
 
 const started = await botManager.start();
+
+if (!fs.existsSync(path.join(DIST, 'index.html'))) {
+  console.log('--------------------------------------------------------');
+  console.log(' ⚠ 注意：dist/ 目录不存在或未构建，管理面板暂时不可用。');
+  console.log('   请先运行: npm run build');
+  console.log('   然后重启: npm start');
+  console.log('   （也可以使用 npm run dev 开发模式）');
+  console.log('--------------------------------------------------------');
+}
 
 console.log('========================================');
 console.log(' RoundStudio qBot 管理服务');
