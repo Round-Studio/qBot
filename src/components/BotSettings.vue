@@ -1,99 +1,96 @@
 <script setup>
 import { ref } from 'vue'
-import { api } from '../api.js'
+import { api, errorText } from '../api.js'
+import { useConfigPage } from '../useConfigPage.js'
 
-const props = defineProps({
-  config: { type: Object, required: true },
-  status: { type: Object, default: null },
-  saving: { type: Boolean, default: false },
-})
-const emit = defineEmits(['save', 'toast'])
+const {
+  config, loading, loadError, saving, dirty, saveError, lastSaved, load, save,
+} = useConfigPage()
 
 const busy = ref(false)
-const configPath = ref('')
+const pathInfo = ref(null)
 
 async function loadPath() {
   try {
-    const info = await api.configPath()
-    configPath.value = info.dir
+    pathInfo.value = await api.configPath()
   } catch {
-    configPath.value = ''
+    /* 忽略 */
   }
 }
-loadPath()
 
-async function action(fn, okText) {
+async function botAction(fn, okText) {
   busy.value = true
   try {
     const result = await fn()
-    emit('toast', okText)
     if (result?.state === 'error' && result.error) {
-      emit('toast', result.error)
+      saveError.value = result.error
     }
   } catch (err) {
-    emit('toast', err.message)
+    saveError.value = errorText(err)
   } finally {
     busy.value = false
   }
 }
 
-
+load()
+loadPath()
 </script>
 
 <template>
   <section>
-    <h2>机器人设置</h2>
-    <p class="hint">AppID / AppSecret 修改保存后会自动重启机器人。</p>
+    <div v-if="loading" class="state-hint">加载配置中…</div>
+    <div v-else-if="loadError" class="state-hint err">{{ loadError }}</div>
+    <template v-else-if="config">
+      <h2>机器人设置</h2>
+      <p class="hint">AppID / AppSecret 修改保存后，机器人将自动重启并重新连接。</p>
 
-    <div class="card">
-      <div class="field">
-        <label>AppID</label>
-        <input v-model="config.bot.appId" type="text" placeholder="例如 1*******3" />
+      <div class="card">
+        <div class="grid-2">
+          <div class="field">
+            <label>AppID</label>
+            <input v-model="config.bot.appId" type="text" placeholder="例如 102813393" />
+          </div>
+          <div class="field">
+            <label>AppSecret</label>
+            <input v-model="config.bot.appSecret" type="password" placeholder="机器人密钥" />
+          </div>
+          <div class="field">
+            <label>Release 缓存时间（毫秒）</label>
+            <input v-model.number="config.cacheTtlMs" type="number" min="0" step="1000" />
+          </div>
+          <div class="field">
+            <label>默认指令前缀</label>
+            <input
+              type="text"
+              :value="(config.defaultPrefixes || []).join(' ')"
+              @input="config.defaultPrefixes = $event.target.value.split(/\s+/).filter(Boolean)"
+              placeholder=". / 。"
+            />
+          </div>
+        </div>
       </div>
-      <div class="field">
-        <label>AppSecret</label>
-        <input v-model="config.bot.appSecret" type="password" placeholder="你的机器人密钥" />
+
+      <div class="card">
+        <h3>机器人控制</h3>
+        <p class="hint">机器人运行状态显示在页面右上角，每 3 秒自动刷新。</p>
+        <div class="actions">
+          <button class="btn primary" :disabled="busy" @click="botAction(api.startBot)">启动</button>
+          <button class="btn" :disabled="busy" @click="botAction(api.restartBot)">重启</button>
+          <button class="btn danger" :disabled="busy" @click="botAction(api.stopBot)">停止</button>
+        </div>
+        <p v-if="pathInfo" class="hint">配置文件：<code>{{ pathInfo.file }}</code></p>
       </div>
-      <div class="field">
-        <label>Release 缓存时间（毫秒）</label>
-        <input v-model.number="config.cacheTtlMs" type="number" min="0" step="1000" />
-        <p class="field-hint">默认 3600000（1 小时）。缓存用于减少 GitHub API 请求次数。</p>
-      </div>
-      <div class="actions">
-        <button class="btn primary" :disabled="saving" @click="emit('save')">
-          {{ saving ? '保存中...' : '保存配置' }}
+
+      <div class="savebar" :class="{ 'savebar-dirty': dirty }">
+        <div class="savebar-info">
+          <template v-if="saveError"><span class="err-block">{{ saveError }}</span></template>
+          <template v-else-if="dirty"><span class="warn-block">有未保存的修改</span></template>
+          <template v-else><span class="ok-block">已保存{{ lastSaved ? ' · ' + lastSaved : '' }}</span></template>
+        </div>
+        <button class="btn primary" :disabled="saving || !dirty" @click="save">
+          {{ saving ? '保存中…' : '保存配置' }}
         </button>
       </div>
-    </div>
-
-    <div class="card">
-      <h3>机器人控制</h3>
-      <div class="status-lines">
-        <div class="line">
-          <span class="k">当前状态</span>
-          <span class="v">
-            {{ status?.state === 'running' ? '运行中' : status?.state === 'connecting' ? '连接中' : status?.state === 'error' ? '出错' : '已停止' }}
-          </span>
-        </div>
-        <div class="line">
-          <span class="k">AppID</span>
-          <span class="v">{{ status?.appId || '未配置' }}</span>
-        </div>
-        <div v-if="status?.error" class="line">
-          <span class="k">错误信息</span>
-          <span class="v err-txt">{{ status.error }}</span>
-        </div>
-        <div v-if="status?.lastMessage" class="line">
-          <span class="k">最近消息</span>
-          <span class="v">{{ status.lastMessage.content }}</span>
-        </div>
-      </div>
-      <div class="actions">
-        <button class="btn" :disabled="busy" @click="action(api.startBot, '机器人已启动')">启动</button>
-        <button class="btn" :disabled="busy" @click="action(api.restartBot, '机器人已重启')">重启</button>
-        <button class="btn danger" :disabled="busy" @click="action(api.stopBot, '机器人已停止')">停止</button>
-      </div>
-      <p v-if="configPath" class="field-hint">配置文件目录：<code>{{ configPath }}</code></p>
-    </div>
+    </template>
   </section>
 </template>

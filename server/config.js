@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { migratePatterns, DEFAULT_PREFIXES } from './matcher.js';
 
 export const DEFAULT_RELEASE_TEMPLATE = `## {{displayName}} 最新构建信息
 
@@ -51,6 +52,7 @@ export function defaultConfig(env = process.env) {
       appSecret: env.APP_SECRET || '',
     },
     cacheTtlMs: 60 * 60 * 1000,
+    defaultPrefixes: [...DEFAULT_PREFIXES],
     templates: [
       { key: 'release', name: '发布信息模板', content: DEFAULT_RELEASE_TEMPLATE },
       { key: 'help', name: '帮助模板', content: DEFAULT_HELP_TEMPLATE },
@@ -89,7 +91,8 @@ export function defaultConfig(env = process.env) {
         id: 'help',
         name: 'help',
         description: '显示此帮助信息',
-        patterns: ['.help', '/help', '。help', '.帮助', '/帮助', '。帮助'],
+        keywords: ['help', '帮助'],
+        prefixes: [...DEFAULT_PREFIXES],
         type: 'help',
         enabled: true,
       },
@@ -97,7 +100,8 @@ export function defaultConfig(env = process.env) {
         id: 'bb',
         name: 'bedrockboot',
         description: '获取 BedrockBoot 最新构建文件',
-        patterns: ['.bb', '/bb', '。bb'],
+        keywords: ['bb', 'bedrockboot'],
+        prefixes: [...DEFAULT_PREFIXES],
         type: 'release',
         repoKey: 'bedrockboot',
         templateKey: 'release',
@@ -107,7 +111,8 @@ export function defaultConfig(env = process.env) {
         id: 'bmcbl',
         name: 'bmcbl',
         description: '获取 BMCBL 最新构建文件',
-        patterns: ['.bmcbl', '/bmcbl', '。bmcbl'],
+        keywords: ['bmcbl'],
+        prefixes: [...DEFAULT_PREFIXES],
         type: 'release',
         repoKey: 'bmcbl',
         templateKey: 'release',
@@ -117,11 +122,45 @@ export function defaultConfig(env = process.env) {
   };
 }
 
+function normalizeCommand(c) {
+  let keywords = Array.isArray(c.keywords)
+    ? c.keywords.map(k => String(k).trim()).filter(Boolean)
+    : [];
+  let prefixes = Array.isArray(c.prefixes)
+    ? c.prefixes.map(p => String(p).trim()).filter(Boolean)
+    : [];
+
+  // 旧配置迁移：从 patterns 推导 keywords/prefixes
+  if (!keywords.length && Array.isArray(c.patterns)) {
+    const migrated = migratePatterns(c.patterns);
+    keywords = migrated.keywords;
+    if (!prefixes.length) prefixes = migrated.prefixes;
+  }
+  if (!keywords.length) keywords = [String(c.name || '').trim()].filter(Boolean);
+  if (!prefixes.length) prefixes = [...DEFAULT_PREFIXES];
+
+  return {
+    id: String(c.id || cryptoRandomId()),
+    name: String(c.name || '').trim(),
+    description: String(c.description || ''),
+    keywords,
+    prefixes,
+    type: ['help', 'text', 'release'].includes(c.type) ? c.type : 'text',
+    repoKey: c.repoKey ? String(c.repoKey) : '',
+    templateKey: c.templateKey ? String(c.templateKey) : '',
+    replyText: c.replyText != null ? String(c.replyText) : '',
+    enabled: c.enabled !== false,
+  };
+}
+
 function normalizeConfig(cfg, env = process.env) {
   const defaults = defaultConfig(env);
   const config = {
     bot: { ...defaults.bot, ...(cfg.bot || {}) },
     cacheTtlMs: Number(cfg.cacheTtlMs) > 0 ? Number(cfg.cacheTtlMs) : defaults.cacheTtlMs,
+    defaultPrefixes: Array.isArray(cfg.defaultPrefixes) && cfg.defaultPrefixes.length
+      ? cfg.defaultPrefixes.map(p => String(p).trim()).filter(Boolean)
+      : [...DEFAULT_PREFIXES],
     templates: Array.isArray(cfg.templates) && cfg.templates.length > 0
       ? cfg.templates.map(t => ({ key: String(t.key || ''), name: String(t.name || ''), content: String(t.content ?? '') }))
       : defaults.templates,
@@ -139,19 +178,7 @@ function normalizeConfig(cfg, env = process.env) {
         }))
       : defaults.repos,
     commands: Array.isArray(cfg.commands)
-      ? cfg.commands.map(c => ({
-          id: String(c.id || cryptoRandomId()),
-          name: String(c.name || '').trim(),
-          description: String(c.description || ''),
-          patterns: Array.isArray(c.patterns)
-            ? c.patterns.map(p => String(p).trim()).filter(Boolean)
-            : String(c.patterns || '').split(/[\s,，]+/).map(s => s.trim()).filter(Boolean),
-          type: ['help', 'text', 'release'].includes(c.type) ? c.type : 'text',
-          repoKey: c.repoKey ? String(c.repoKey) : '',
-          templateKey: c.templateKey ? String(c.templateKey) : '',
-          replyText: c.replyText != null ? String(c.replyText) : '',
-          enabled: c.enabled !== false,
-        }))
+      ? cfg.commands.map(normalizeCommand)
       : defaults.commands,
   };
   return config;
@@ -205,17 +232,25 @@ export class ConfigStore {
   }
 
   getCommands() {
-    return (this.config.commands || []).filter(c => c.enabled !== false);
+    return (this.config.commands || []);
   }
 
   async save(next) {
     const normalized = normalizeConfig(next);
-    const tmp = `${this.file}.tmp`;
     await fs.mkdir(this.dir, { recursive: true });
-    await fs.writeFile(tmp, JSON.stringify(normalized, null, 2), 'utf-8');
-    await fs.rename(tmp, this.file);
-    this.config = normalized;
-    return normalized;
+    // 直接写盘（Windows 下 rename 可能因文件占用失败）
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await fs.writeFile(this.file, JSON.stringify(normalized, null, 2), 'utf-8');
+        this.config = normalized;
+        return normalized;
+      } catch (err) {
+        lastError = err;
+        await new Promise(r => setTimeout(r, 150 * (attempt + 1)));
+      }
+    }
+    throw lastError || new Error('写入配置失败');
   }
 
   cacheFile(repoKey) {

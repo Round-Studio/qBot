@@ -1,13 +1,19 @@
 async function request(pathname, options = {}) {
-  const res = await fetch(`/api${pathname}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(body.error || `请求失败 (${res.status})`);
+  let res
+  try {
+    res = await fetch(`/api${pathname}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+    })
+  } catch (err) {
+    throw new Error(`无法连接后端服务（${pathname}）: ${err.message}`)
   }
-  return body;
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const detail = body.error || body.message || `HTTP ${res.status}`
+    throw new Error(`请求失败 ${pathname}: ${detail}`)
+  }
+  return body
 }
 
 export const api = {
@@ -21,4 +27,8 @@ export const api = {
   preview: payload => request('/template/preview', { method: 'POST', body: JSON.stringify(payload) }),
   fetchRelease: (key, refresh = false) =>
     request(`/repos/${encodeURIComponent(key)}/fetch${refresh ? '?refresh=1' : ''}`, { method: 'POST' }),
-};
+}
+
+export function errorText(err) {
+  return err && err.message ? err.message : '未知错误'
+}

@@ -1,6 +1,7 @@
 import { QQBot } from '@tencent-connect/qqbot-nodejs';
 import { renderTemplate } from './template.js';
 import { DEFAULT_HELP_TEMPLATE, DEFAULT_RELEASE_TEMPLATE } from './config.js';
+import { matchCommand, firstPattern, allPatterns } from './matcher.js';
 
 // 获取消息的发送目标
 function getSendTarget(msg) {
@@ -25,7 +26,7 @@ function getSendTarget(msg) {
   return null;
 }
 
-// 提取指令和参数
+// 提取指令和参数（保留，兼容其他调用方）
 function parseCommand(content) {
   if (!content) return { command: '', args: [] };
 
@@ -202,6 +203,19 @@ export class BotManager {
     this.lastMessage = { content: msg.content, time: Date.now() };
     console.log(`收到消息: ${msg.content}, 类型: ${msg.rawEventType || '未知'}`);
 
+    const eventType = msg.rawEventType || '';
+    if (eventType === 'IMAGE' || eventType === 'image' ||
+        msg.content?.includes('[图片]') || msg.content?.includes('[image]')) {
+      console.log('忽略图片消息');
+      return;
+    }
+
+    // 如果消息内容为空或只有空白，也忽略
+    if (!msg.content || !msg.content.trim()) {
+      console.log('忽略空消息');
+      return;
+    }
+
     const config = this.store.get();
     const target = getSendTarget(msg);
     if (!target) {
@@ -217,10 +231,11 @@ export class BotManager {
       return;
     }
 
-    const commands = config.commands || [];
-    const matched = commands.find(cmd =>
-      (cmd.patterns || []).some(pattern => command.toLowerCase() === pattern.toLowerCase())
-    );
+    const commands = this.store.getCommands();
+    const defaultPrefixes = this.store.get().defaultPrefixes || [];
+
+    // 匹配系统：前缀 + 关键词，支持多种触发方式
+    const matched = matchCommand(msg.content, commands, defaultPrefixes);
 
     if (!matched) {
       const noCommand = config.errorTexts?.noCommand;
@@ -230,19 +245,20 @@ export class BotManager {
       return;
     }
 
-    console.log(`执行指令: ${matched.name}`);
+    const { command: commandDef, args: matchArgs } = matched;
+    console.log(`执行指令: ${commandDef.name}（触发词 ${firstPattern(commandDef, defaultPrefixes)}）`);
     try {
-      if (matched.type === 'help') {
+      if (commandDef.type === 'help') {
         await this.runHelp(bot, target);
-      } else if (matched.type === 'text') {
-        await this.safeSend(bot, target, matched.replyText || '');
-      } else if (matched.type === 'release') {
-        await this.runRelease(bot, target, matched);
+      } else if (commandDef.type === 'text') {
+        await this.safeSend(bot, target, commandDef.replyText || '');
+      } else if (commandDef.type === 'release') {
+        await this.runRelease(bot, target, commandDef);
       } else {
         await this.runHelp(bot, target);
       }
     } catch (err) {
-      console.error(`指令 ${matched.name} 执行出错:`, err);
+      console.error(`指令 ${commandDef.name} 执行出错:`, err);
       const errorText = config.errorTexts?.error || '❌ 执行出错，请稍后重试。';
       await this.safeSend(bot, target, errorText);
     }
@@ -250,13 +266,16 @@ export class BotManager {
 
   async runHelp(bot, target) {
     const config = this.store.get();
-    const commands = config.commands || [];
+    const commands = this.store.getCommands();
+    const defaultPrefixes = config.defaultPrefixes || [];
     const context = {
       commands: commands.map(cmd => ({
         name: cmd.name,
         description: cmd.description,
-        patterns: cmd.patterns.join(' '),
-        firstPattern: (cmd.patterns || [])[0] || '',
+        patterns: allPatterns(cmd, defaultPrefixes).join(' '),
+        firstPattern: firstPattern(cmd, defaultPrefixes),
+        keywords: (cmd.keywords || []).join(' '),
+        prefixes: (cmd.prefixes || defaultPrefixes).join(' '),
       })),
     };
     const template = this.store.getTemplate('help');

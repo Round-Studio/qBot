@@ -15,7 +15,8 @@
     "@rolldown/binding-wasm32-wasi": "^1.2.4",
     "@tencent-connect/qqbot-nodejs": "^1.0.4",
     "dotenv": "^17.4.2",
-    "vue": "^3.5.40"
+    "vue": "^3.5.40",
+    "vue-router": "^4.6.4"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.8",
