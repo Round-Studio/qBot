@@ -202,7 +202,7 @@ function serveStatic(res, pathname) {
 const server = http.createServer(async (req, res) => {
   try {
     setCors(res);
-    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const url = new URL(req.url, `http://${req.headers.host || '0.0.0.0'}`);
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
       return res.end();
@@ -228,12 +228,12 @@ console.log(' RoundStudio qBot 管理服务');
 console.log('----------------------------------------');
 console.log(` 配置目录: ${store.dir}`);
 console.log(` 配置文件: ${store.file}`);
-console.log(` 管理面板: http://localhost:${PORT}`);
+console.log(` 管理面板: http://0.0.0.0:${PORT}`);
 console.log(` 机器人状态: ${botManager.getStatus().state}`);
 console.log('========================================');
 
 server.listen(PORT, () => {
-  console.log(`HTTP 服务已启动: http://localhost:${PORT}`);
+  console.log(`HTTP 服务已启动: http://0.0.0.0:${PORT}`);
 });
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
