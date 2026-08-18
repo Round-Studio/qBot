@@ -2,6 +2,7 @@ import http from 'http';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 import { ConfigStore } from './config.js';
@@ -13,6 +14,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
+const DIST_INDEX = path.join(DIST, 'index.html');
+
+// 若管理面板未构建（dist/ 缺失），自动执行 vite build
+if (!fs.existsSync(DIST_INDEX)) {
+  console.log('检测到管理面板未构建，正在自动运行 npm run build ...');
+  try {
+    execSync('npm run build', { stdio: 'inherit', cwd: ROOT });
+  } catch (err) {
+    console.log('自动构建失败，可稍后手动运行 npm run build。');
+  }
+}
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -254,7 +266,7 @@ const server = http.createServer(async (req, res) => {
 
 const started = await botManager.start();
 
-if (!fs.existsSync(path.join(DIST, 'index.html'))) {
+if (!fs.existsSync(DIST_INDEX)) {
   console.log('--------------------------------------------------------');
   console.log(' ⚠ 注意：dist/ 目录不存在或未构建，管理面板暂时不可用。');
   console.log('   请先运行: npm run build');
