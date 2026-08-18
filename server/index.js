@@ -1,5 +1,6 @@
 import http from 'http';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
@@ -14,6 +15,21 @@ const ROOT = path.resolve(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
 
 const PORT = Number(process.env.PORT) || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
+
+// 获取本机局域网 IPv4 地址列表
+function lanUrls() {
+  const urls = [];
+  const interfaces = os.networkInterfaces();
+  for (const list of Object.values(interfaces)) {
+    for (const item of list || []) {
+      if (item.family === 'IPv4' && !item.internal) {
+        urls.push(`http://${item.address}:${PORT}`);
+      }
+    }
+  }
+  return urls;
+}
 
 const store = new ConfigStore();
 await store.init();
@@ -228,12 +244,15 @@ console.log(' RoundStudio qBot 管理服务');
 console.log('----------------------------------------');
 console.log(` 配置目录: ${store.dir}`);
 console.log(` 配置文件: ${store.file}`);
-console.log(` 管理面板: http://0.0.0.0:${PORT}`);
+console.log(` 管理面板(本机): http://localhost:${PORT}`);
+for (const url of lanUrls()) {
+  console.log(` 管理面板(局域网): ${url}`);
+}
 console.log(` 机器人状态: ${botManager.getStatus().state}`);
 console.log('========================================');
 
-server.listen(PORT, () => {
-  console.log(`HTTP 服务已启动: http://0.0.0.0:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`HTTP 服务已启动: http://${HOST === '0.0.0.0' ? '0.0.0.0' : HOST}:${PORT}`);
 });
 
 for (const sig of ['SIGINT', 'SIGTERM']) {

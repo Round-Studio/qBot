@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "server": "node server/index.js",
     "start": "node server/index.js",
+    "firewall": "netsh advfirewall firewall add rule name=\"RoundStudio qBot 3000\" dir=in action=allow protocol=TCP localport=3000",
     "go": "npm run build && node server/index.js"
   },
   "dependencies": {
